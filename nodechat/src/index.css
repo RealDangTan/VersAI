@@ -1,0 +1,194 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* ===== Markdown Reset for LLM Response ===== */
+.markdown>* {
+  all: revert;
+}
+
+.markdown ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+.markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+.markdown li {
+  margin-bottom: 0.25em;
+  line-height: 1.6;
+}
+
+.markdown li>ul,
+.markdown li>ol {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-weight: bold;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  color: #1f2937;
+}
+
+.markdown h1 {
+  font-size: 1.25rem;
+}
+
+.markdown h2 {
+  font-size: 1.125rem;
+}
+
+.markdown h3 {
+  font-size: 1rem;
+}
+
+.markdown p {
+  margin-bottom: 0.75em;
+  line-height: 1.7;
+}
+
+.markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown code {
+  background-color: #f3e8ff;
+  color: #7c3aed;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.8em;
+}
+
+.markdown pre {
+  background-color: #1e1e2e;
+  padding: 0;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+
+.markdown pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.85em;
+}
+
+.markdown blockquote {
+  border-left: 4px solid #c084fc;
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 1em;
+  font-size: 0.875rem;
+}
+
+.markdown th {
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  padding: 0.5em 0.75em;
+  text-align: left;
+  font-weight: 600;
+}
+
+.markdown td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5em 0.75em;
+}
+
+.markdown a {
+  color: #7c3aed;
+  text-decoration: underline;
+}
+
+.markdown a:hover {
+  color: #5b21b6;
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.5em 0;
+}
+
+.markdown strong {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+  margin: 0.5em 0;
+}
+
+/* ===== LLM Content Area scrollbar ===== */
+.llm-content-area::-webkit-scrollbar {
+  width: 4px;
+}
+
+.llm-content-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.llm-content-area::-webkit-scrollbar-thumb {
+  background: #d8b4fe;
+  border-radius: 2px;
+}
+
+.llm-content-area::-webkit-scrollbar-thumb:hover {
+  background: #a855f7;
+}
+
+/* ===== Popup Animation ===== */
+@keyframes popup-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-popup-in {
+  animation: popup-in 0.2s ease-out forwards;
+}
+
+/* ===== Markdown output wrapper fix ===== */
+.llm-markdown-output {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #374151;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.llm-markdown-output .markdown {
+  all: initial;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  display: block;
+}
