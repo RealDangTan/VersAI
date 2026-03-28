@@ -294,6 +294,25 @@ function NodeChat() {
     );
   }, [setNodes]);
 
+  const onRagMetadata = useCallback((ragData) => {
+    console.log('[RAG] Used:', ragData.used, 'Files:', ragData.files);
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id === currentLlmNodeId.current) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              ragUsed: ragData.used,
+              ragFiles: ragData.files || []
+            }
+          };
+        }
+        return n;
+      })
+    );
+  }, [setNodes]);
+
   const handleSendMessage = useCallback(async () => {
     if (message.trim() === '') return;
 
@@ -343,11 +362,11 @@ function NodeChat() {
     const fileContexts = history.flatMap(h => h.files || []);
 
     try {
-      await sendConversationRequest('generate', history, fileContexts, onChunkReceived, currentSettings);
+      await sendConversationRequest('generate', history, fileContexts, onChunkReceived, currentSettings, onRagMetadata);
     } catch (error) {
       console.error('Failed to generate response:', error);
     }
-  }, [message, getSelectedNode, addNode, setSelectNode, reactFlow, nodes, onChunkReceived]);
+  }, [message, getSelectedNode, addNode, setSelectNode, reactFlow, nodes, onChunkReceived, onRagMetadata]);
 
   // Save current workspace and switch to new/existing one
   const saveCurrentWorkspace = useCallback(() => {

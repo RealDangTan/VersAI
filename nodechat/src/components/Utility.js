@@ -1,7 +1,7 @@
 import { getOutgoers, getIncomers } from '@xyflow/react';
 import { API_BASE_URL } from '../config';
 
-export async function sendConversationRequest(endpoint, conversation, fileContexts, onChunkReceived, aiSettings = null) {
+export async function sendConversationRequest(endpoint, conversation, fileContexts, onChunkReceived, aiSettings = null, onRagMetadata = null) {
   try {
     // Strip internal fields to match OpenAI message format
     const formattedHistory = conversation.map(({ role, content }) => ({ role, content }));
@@ -15,6 +15,7 @@ export async function sendConversationRequest(endpoint, conversation, fileContex
     const body = {
       history: formattedHistory,
       fileContexts,
+      useRag: aiSettings?.useRag !== false, // Default to true
     };
 
     // Pass AI settings to the backend
@@ -23,9 +24,11 @@ export async function sendConversationRequest(endpoint, conversation, fileContex
       if (aiSettings.provider === 'openai') {
         body.openaiApiKey = aiSettings.openaiApiKey;
         body.openaiModel = aiSettings.openaiModel || 'gpt-4o';
+        body.openaiEmbeddingModel = aiSettings.openaiEmbeddingModel || 'text-embedding-3-small';
       } else {
         body.ollamaUrl = aiSettings.ollamaUrl;
         body.ollamaModel = aiSettings.ollamaModel || 'qwen3:8b';
+        body.ollamaEmbeddingModel = aiSettings.ollamaEmbeddingModel || 'qwen3-embedding';
       }
     }
 
@@ -60,6 +63,15 @@ export async function sendConversationRequest(endpoint, conversation, fileContex
 
         if (chunk.startsWith('data: ')) {
           const data = JSON.parse(chunk.slice(6));
+
+          // Handle RAG metadata
+          if (data.type === 'rag') {
+            if (onRagMetadata) {
+              onRagMetadata(data);
+            }
+            continue;
+          }
+
           if (data.content === '[DONE]') {
             return;
           } else {

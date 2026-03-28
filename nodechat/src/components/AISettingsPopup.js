@@ -2,13 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 const DEFAULT_OLLAMA_URL = 'https://research.neu.edu.vn/ollama/v1/chat/completions';
 const DEFAULT_OLLAMA_MODEL = 'qwen3:8b';
+const DEFAULT_OLLAMA_EMBEDDING_MODEL = 'qwen3-embedding';
 
 const AISettingsPopup = ({ isOpen, onClose, onSave }) => {
     const [activeTab, setActiveTab] = useState('ollama'); // 'openai' or 'ollama'
     const [openaiApiKey, setOpenaiApiKey] = useState('');
     const [openaiModel, setOpenaiModel] = useState('gpt-4o');
+    const [openaiEmbeddingModel, setOpenaiEmbeddingModel] = useState('text-embedding-3-small');
     const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
     const [ollamaModel, setOllamaModel] = useState(DEFAULT_OLLAMA_MODEL);
+    const [ollamaEmbeddingModel, setOllamaEmbeddingModel] = useState(DEFAULT_OLLAMA_EMBEDDING_MODEL);
+    const [useRag, setUseRag] = useState(true);
     const [showKey, setShowKey] = useState(false);
 
     // Load saved settings from localStorage
@@ -21,8 +25,11 @@ const AISettingsPopup = ({ isOpen, onClose, onSave }) => {
                     setActiveTab(settings.provider || 'ollama');
                     setOpenaiApiKey(settings.openaiApiKey || '');
                     setOpenaiModel(settings.openaiModel || 'gpt-4o');
+                    setOpenaiEmbeddingModel(settings.openaiEmbeddingModel || 'text-embedding-3-small');
                     setOllamaUrl(settings.ollamaUrl || DEFAULT_OLLAMA_URL);
                     setOllamaModel(settings.ollamaModel || DEFAULT_OLLAMA_MODEL);
+                    setOllamaEmbeddingModel(settings.ollamaEmbeddingModel || DEFAULT_OLLAMA_EMBEDDING_MODEL);
+                    setUseRag(settings.useRag !== false); // Default to true
                 } catch (e) {
                     console.error('Failed to parse saved AI settings', e);
                 }
@@ -35,13 +42,16 @@ const AISettingsPopup = ({ isOpen, onClose, onSave }) => {
             provider: activeTab,
             openaiApiKey,
             openaiModel,
+            openaiEmbeddingModel,
             ollamaUrl,
             ollamaModel,
+            ollamaEmbeddingModel,
+            useRag,
         };
         localStorage.setItem('versai_ai_settings', JSON.stringify(settings));
         if (onSave) onSave(settings);
         onClose();
-    }, [activeTab, openaiApiKey, openaiModel, ollamaUrl, ollamaModel, onSave, onClose]);
+    }, [activeTab, openaiApiKey, openaiModel, openaiEmbeddingModel, ollamaUrl, ollamaModel, ollamaEmbeddingModel, useRag, onSave, onClose]);
 
     if (!isOpen) return null;
 

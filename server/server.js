@@ -51,6 +51,257 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 const { performOCR } = require('./ocr');
+const { Chroma } = require('chromadb');
+const RagPipeline = require('./ragPipeline');
+
+// --- ChromaDB Setup ---
+let chromaClient;
+let ragCollection;
+let ragPipeline;
+
+async function initChroma() {
+  try {
+    // Connect to Chroma - using ephemeral in-memory DB for simplicity
+    // For persistent storage, you'd configure a persistDirectory
+    chromaClient = new Chroma({
+      path: 'http://localhost:8001' // Adjust if Chroma runs on different port
+    });
+
+    // Get or create the collection
+    try {
+      ragCollection = await chromaClient.getOrCreateCollection({ name: 'versai-knowledge' });
+    } catch (e) {
+      console.warn("Chroma collection creation failed, RAG will be disabled:", e.message);
+      return false;
+    }
+
+    // Initialize the RAG pipeline
+    ragPipeline = new RagPipeline(ragCollection, process.env.OPENAI_API_KEY || "");
+    console.log("[RAG] ChromaDB initialized, collection has", await ragCollection.count(), "documents");
+    return true;
+  } catch (error) {
+    console.error("[RAG] Failed to initialize ChromaDB:", error.message);
+    return false;
+  }
+}
+
+// --- Text Chunking Utility ---
+function chunkText(text, chunkSize = 500, overlap = 50) {
+  const chunks = [];
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+  let currentChunk = "";
+
+  for (const sentence of sentences) {
+    if ((currentChunk + sentence).length > chunkSize && currentChunk.length > 0) {
+      chunks.push(currentChunk.trim());
+      // Keep overlap from the end
+      currentChunk = currentChunk.slice(-overlap) + sentence;
+    } else {
+      currentChunk += sentence;
+    }
+  }
+
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks;
+}
+
+// --- RAG API Endpoints ---
+
+// GET /rag/files - List indexed documents
+app.get('/rag/files', async (req, res) => {
+  try {
+    if (!ragCollection) {
+      return res.status(503).json({ error: 'RAG not initialized' });
+    }
+
+    const count = await ragCollection.count();
+    if (count === 0) {
+      return res.json({ files: [] });
+    }
+
+    // Get all documents to extract unique filenames from metadata
+    const results = await ragCollection.get();
+
+    // Extract unique filenames
+    const filesSet = new Set();
+    if (results.metadatas) {
+      for (const meta of results.metadatas) {
+        if (meta && meta.filename) {
+          filesSet.add(meta.filename);
+        }
+      }
+    }
+
+    res.json({ files: Array.from(filesSet) });
+  } catch (error) {
+    console.error("[RAG] Error listing files:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /rag/upload - Upload and embed a file
+app.post('/rag/upload', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  try {
+    if (!ragCollection) {
+      return res.status(503).json({ error: 'RAG not initialized. Make sure ChromaDB is running.' });
+    }
+
+    const textContent = await extractTextFromFile(req.file.path, req.file.mimetype);
+    if (!textContent || textContent.trim().length === 0) {
+      return res.status(400).json({ error: 'Could not extract text from file' });
+    }
+
+    // Parse AI settings from body if provided
+    let aiSettings = {};
+    try {
+      if (req.body.aiSettings) {
+        aiSettings = JSON.parse(req.body.aiSettings);
+      }
+    } catch (e) {
+      console.warn("[RAG] Could not parse AI settings, using defaults");
+    }
+
+    const provider = aiSettings.provider || 'openai';
+    const openaiApiKey = aiSettings.openaiApiKey || process.env.OPENAI_API_KEY;
+    const openaiEmbeddingModel = aiSettings.openaiEmbeddingModel || 'text-embedding-3-small';
+    const ollamaUrl = aiSettings.ollamaUrl || 'https://research.neu.edu.vn/ollama/v1/chat/completions';
+    const ollamaEmbeddingModel = aiSettings.ollamaEmbeddingModel || 'qwen3-embedding';
+
+    // Chunk the text
+    const chunks = chunkText(textContent);
+    console.log(`[RAG] Chunked "${req.file.originalname}" into ${chunks.length} pieces`);
+
+    // Generate embeddings and add to collection
+    const ids = [];
+    const embeddings = [];
+    const documents = [];
+    const metadatas = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      try {
+        const embedding = await ragPipeline.generateEmbedding(
+          chunks[i],
+          provider,
+          openaiApiKey,
+          openaiEmbeddingModel,
+          ollamaUrl,
+          ollamaEmbeddingModel
+        );
+
+        ids.push(`${req.file.originalname}-chunk-${i}`);
+        embeddings.push(embedding);
+        documents.push(chunks[i]);
+        metadatas.push({
+          filename: req.file.originalname,
+          chunkIndex: i,
+          totalChunks: chunks.length
+        });
+      } catch (e) {
+        console.error(`[RAG] Failed to embed chunk ${i}:`, e.message);
+      }
+    }
+
+    if (ids.length > 0) {
+      await ragCollection.add({
+        ids: ids,
+        embeddings: embeddings,
+        documents: documents,
+        metadatas: metadatas
+      });
+
+      console.log(`[RAG] Added ${ids.length} chunks to collection`);
+      res.json({
+        success: true,
+        filename: req.file.originalname,
+        chunksAdded: ids.length,
+        totalDocuments: await ragCollection.count()
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to generate embeddings for any chunks' });
+    }
+  } catch (error) {
+    console.error("[RAG] Upload error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /rag/files/:filename - Remove a file from index
+app.delete('/rag/files/:filename', async (req, res) => {
+  try {
+    if (!ragCollection) {
+      return res.status(503).json({ error: 'RAG not initialized' });
+    }
+
+    const filename = decodeURIComponent(req.params.filename);
+
+    // Get all IDs that belong to this file
+    const results = await ragCollection.get();
+    const idsToDelete = [];
+
+    if (results.metadatas) {
+      for (let i = 0; i < results.metadatas.length; i++) {
+        if (results.metadatas[i] && results.metadatas[i].filename === filename) {
+          idsToDelete.push(results.ids[i]);
+        }
+      }
+    }
+
+    if (idsToDelete.length > 0) {
+      await ragCollection.delete({ ids: idsToDelete });
+      console.log(`[RAG] Deleted ${idsToDelete.length} chunks for "${filename}"`);
+    }
+
+    res.json({ success: true, chunksDeleted: idsToDelete.length });
+  } catch (error) {
+    console.error("[RAG] Delete error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /rag/clear - Clear all RAG data
+app.delete('/rag/clear', async (req, res) => {
+  try {
+    if (!ragCollection) {
+      return res.status(503).json({ error: 'RAG not initialized' });
+    }
+
+    // Delete all documents in the collection
+    const results = await ragCollection.get();
+    if (results.ids && results.ids.length > 0) {
+      await ragCollection.delete({ ids: results.ids });
+    }
+
+    console.log("[RAG] Cleared all documents from collection");
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[RAG] Clear error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /rag/status - Check RAG status
+app.get('/rag/status', async (req, res) => {
+  try {
+    if (!ragCollection) {
+      return res.json({ initialized: false, error: 'RAG not initialized' });
+    }
+
+    const count = await ragCollection.count();
+    res.json({
+      initialized: true,
+      documentCount: count
+    });
+  } catch (error) {
+    res.status(500).json({ initialized: false, error: error.message });
+  }
+});
 
 async function extractTextFromFile(filePath, mimeType) {
   try {
@@ -99,18 +350,74 @@ app.post("/generate", async (req, res) => {
     const {
       history,
       fileContexts,
+      useRag = true, // Enable RAG by default
       provider = 'ollama',
       openaiApiKey,
       openaiModel = 'gpt-4o',
+      openaiEmbeddingModel,
       ollamaUrl = 'https://research.neu.edu.vn/ollama/v1/chat/completions',
-      ollamaModel = 'qwen3:8b'
+      ollamaModel = 'qwen3:8b',
+      ollamaEmbeddingModel
     } = req.body;
+
+    // Get the user's last message for RAG retrieval
+    const lastUserMessage = Array.isArray(history)
+      ? history.filter(m => m.role === 'user').pop()?.content
+      : req.body.message || '';
+
+    // --- RAG Context Retrieval ---
+    let ragContext = '';
+    let ragMetadata = null;
+
+    if (useRag && ragPipeline && lastUserMessage) {
+      try {
+        const aiSettings = {
+          provider,
+          openaiApiKey,
+          openaiModel,
+          openaiEmbeddingModel,
+          ollamaUrl,
+          ollamaModel,
+          ollamaEmbeddingModel
+        };
+
+        ragContext = await ragPipeline.executePipeline(lastUserMessage, aiSettings);
+
+        if (ragContext) {
+          // Extract document info for feedback
+          const results = await ragCollection.get();
+          const filesSet = new Set();
+          if (results.metadatas) {
+            for (const meta of results.metadatas) {
+              if (meta && meta.filename) {
+                filesSet.add(meta.filename);
+              }
+            }
+          }
+          ragMetadata = {
+            used: true,
+            documentCount: await ragCollection.count(),
+            files: Array.from(filesSet)
+          };
+          console.log("[RAG] Retrieved context for query, used:", ragMetadata.files);
+        }
+      } catch (e) {
+        console.error("[RAG] Error during retrieval:", e.message);
+      }
+    }
 
     // Prepare Context as System Prompt for both
     let contextString = "";
+
+    // Add RAG context first (higher priority)
+    if (ragContext) {
+      contextString += ragContext;
+    }
+
+    // Add file contexts from upload (legacy)
     if (fileContexts && fileContexts.length > 0) {
       console.log(`Received ${fileContexts.length} files in context.`);
-      contextString = "\n\nRelevant Context from Uploaded Files:\n";
+      contextString += "\n\nRelevant Context from Uploaded Files:\n";
       fileContexts.forEach(file => {
         if (!file.textContent || file.textContent.trim().length === 0) {
           contextString += `--- BEGIN FILE: ${file.filename} ---\n[WARNING: Empty/Scanned]\n--- END FILE: ${file.filename} ---\n\n`;
@@ -125,6 +432,11 @@ app.post("/generate", async (req, res) => {
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive'
     });
+
+    // Send RAG metadata as first message
+    if (ragMetadata) {
+      res.write(`data: ${JSON.stringify({ type: 'rag', ...ragMetadata })}\n\n`);
+    }
 
     if (provider === 'ollama') {
       // --- OLLAMA IMPLEMENTATION ---
@@ -256,6 +568,10 @@ app.get('/', (req, res) => {
 
 async function startServer() {
   await loadSystemPrompt();
+
+  // Initialize ChromaDB for RAG
+  await initChroma();
+
   app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
   });

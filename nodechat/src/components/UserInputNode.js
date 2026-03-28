@@ -50,6 +50,25 @@ const UserInputNode = (props) => {
     );
   }, [reactFlow]);
 
+  const onRagMetadata = useCallback((ragData, nodeId) => {
+    console.log('[RAG] Used:', ragData.used, 'Files:', ragData.files);
+    reactFlow.setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id === nodeId) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              ragUsed: ragData.used,
+              ragFiles: ragData.files || []
+            }
+          };
+        }
+        return n;
+      })
+    );
+  }, [reactFlow]);
+
   const regenerateNode = useCallback(async (node) => {
     const nodes = reactFlow.getNodes();
     const edges = reactFlow.getEdges();
@@ -65,11 +84,11 @@ const UserInputNode = (props) => {
     const fileContexts = history.flatMap(h => h.files || []);
 
     try {
-      await sendConversationRequest('generate', history, fileContexts, (content) => onChunkReceived(content, node.id));
+      await sendConversationRequest('generate', history, fileContexts, (content) => onChunkReceived(content, node.id), null, (ragData) => onRagMetadata(ragData, node.id));
     } catch (error) {
       console.error('Failed to generate response:', error);
     }
-  }, [reactFlow, onChunkReceived]);
+  }, [reactFlow, onChunkReceived, onRagMetadata]);
 
   const onRegenerate = useCallback(async () => {
     const nodes = reactFlow.getNodes();

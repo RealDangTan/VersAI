@@ -4,8 +4,6 @@
 
 VersAI là một ứng dụng web chat với các mô hình ngôn ngữ lớn (LLM), biến cuộc hội thoại thành một **sơ đồ nút (flowchart)** thay vì giao diện chat tuyến tính truyền thống. Người dùng có thể tạo nhánh, hợp nhất, chỉnh sửa và tái tạo phản hồi — tất cả trên một canvas tương tác có thể zoom và pan.
 
-Dự án được phát triển dựa trên ý tưởng từ [GitChat](https://github.com/DrustZ/GitChat), mở rộng với hỗ trợ **đa nhà cung cấp AI** (OpenAI & Ollama), **tải file lên kèm OCR**, và nhiều cải tiến giao diện.
-
 ---
 
 ## ✨ Tính năng chính
